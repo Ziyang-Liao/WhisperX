@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.hypothesis/
+node_modules/
+dist/
+.vite/
+*.db
+data/uploads/
+.env
+.vscode/
+.kiro/

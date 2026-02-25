@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+sqlalchemy
+apscheduler
+whisperx
+pydantic
+python-multipart
+aiofiles
+httpx
+mutagen
+torch
+ctranslate2
+eval_type_backport
+pytest
+pytest-asyncio
+hypothesis
