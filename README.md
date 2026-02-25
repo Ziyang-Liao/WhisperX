@@ -474,6 +474,8 @@ engine = TranscriptionEngine()
 result = engine.transcribe("test_audio.mp3", enable_diarization=True)
 ```
 
+**Single-speaker result** (this test audio is a one-sided phone call — only the caller was recorded):
+
 ```
 Language: en | Duration: 41.7s | Segments: 14
 Speakers: 1 — SPEAKER_00
@@ -494,7 +496,28 @@ Speakers: 1 — SPEAKER_00
 [39.3s - 41.5s]  SPEAKER_00:  Refund the headphones now!
 ```
 
-The diarization model correctly identified this as a single-speaker recording — a one-sided phone call where only the caller's voice was captured. For multi-speaker audio, the system assigns distinct labels (SPEAKER_00, SPEAKER_01, ...) to each participant.
+pyannote correctly identified only 1 speaker — the caller. The customer service agent's voice was not captured in this one-sided recording.
+
+**Multi-speaker result** (tested with a synthetic two-speaker audio, 37s):
+
+```
+Language: en | Duration: 37.0s | Segments: 11
+Speakers: 2 — SPEAKER_00, SPEAKER_01
+
+[ 0.0s -  2.3s]  SPEAKER_00:  Hello, refund the headphones, okay?
+[ 4.5s -  9.5s]  SPEAKER_01:  Listen here, folks.
+[ 9.5s - 10.7s]  SPEAKER_01:  I have a guarantee it's safe.
+[10.7s - 13.9s]  SPEAKER_00:  So you will refund them and send her a new pair.
+[15.4s - 18.1s]  SPEAKER_00:  Can you put the manager on, please?
+[18.9s - 22.9s]  SPEAKER_00:  You must give me a refund.
+[22.9s - 24.1s]  SPEAKER_00:  Without it, you're breaking the law.
+[24.1s - 24.3s]  SPEAKER_00:  Please.
+[25.4s - 26.0s]  SPEAKER_00:  Is this the manager?
+[26.9s - 29.3s]  SPEAKER_00:  Give my sister a refund on her headphones.
+[35.4s - 35.9s]  SPEAKER_01:  Yeah.
+```
+
+With multi-speaker audio, pyannote correctly assigns distinct labels (SPEAKER_00, SPEAKER_01) to each participant.
 
 ### Performance Summary
 
