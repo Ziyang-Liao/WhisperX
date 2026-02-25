@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 import platform as _platform
 import torch as _torch
 
+# PyTorch 2.6+ defaults weights_only=True in torch.load, which breaks
+# model checkpoints containing omegaconf/speechbrain objects.
+_original_torch_load = _torch.load
+def _patched_torch_load(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _original_torch_load(*args, **kwargs)
+_torch.load = _patched_torch_load
+
 def _detect_device() -> tuple[str, str]:
     """Auto-detect best device and compute type for the current platform."""
     if _torch.cuda.is_available():
@@ -116,9 +124,14 @@ class TranscriptionEngine:
         # 4. Optional speaker diarization via pyannote
         if enable_diarization:
             try:
-                diarize_model = whisperx.DiarizationPipeline(device=self.device)
+                from huggingface_hub import HfFolder
+                from whisperx.diarize import DiarizationPipeline, assign_word_speakers
+                hf_token = HfFolder.get_token()
+                diarize_model = DiarizationPipeline(
+                    use_auth_token=hf_token, device=self.device
+                )
                 diarize_segments = diarize_model(audio_path)
-                result = whisperx.assign_word_speakers(diarize_segments, result)
+                result = assign_word_speakers(diarize_segments, result)
             except Exception as exc:
                 logger.warning(
                     "Speaker diarization failed, returning without speakers: %s", exc
