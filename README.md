@@ -262,6 +262,167 @@ cd frontend
 npm test
 ```
 
+## Demo: End-to-End Test
+
+The following is a real test run on an AWS EC2 instance with an NVIDIA A10G GPU (24 GB VRAM), demonstrating the full pipeline from audio upload to transcription with speaker diarization.
+
+### Environment
+
+| Item | Value |
+| ---- | ----- |
+| Instance | AWS EC2 (NVIDIA A10G, 24 GB VRAM) |
+| CUDA | 12.8 |
+| PyTorch | 2.8.0+cu128 |
+| WhisperX | 3.7.5 (large-v3, FP16) |
+| Diarization | pyannote/speaker-diarization-3.1 |
+| Python | 3.9 |
+
+### Step 1 — Start the backend
+
+```bash
+cd backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+### Step 2 — Upload audio file
+
+Test audio: a 41.7-second English phone call recording from [Pixabay](https://pixabay.com/).
+
+```bash
+curl -X POST http://localhost:8000/api/audio/upload \
+  -F "files=@test_audio.mp3"
+```
+
+```json
+[
+    {
+        "id": 1,
+        "filename": "test_audio.mp3",
+        "file_size": 833280,
+        "duration": 41.664,
+        "format": "mp3",
+        "upload_time": "2026-02-25T02:27:24.936461",
+        "transcription_status": "pending"
+    }
+]
+```
+
+### Step 3 — Trigger batch transcription
+
+```bash
+curl -X POST http://localhost:8000/api/transcription/trigger \
+  -H "Content-Type: application/json" \
+  -d '{"file_ids": [1]}'
+```
+
+```json
+{
+    "id": 1,
+    "trigger_type": "manual",
+    "status": "completed",
+    "total_files": 1,
+    "processed_files": 1,
+    "success_count": 1,
+    "failure_count": 0,
+    "started_at": "2026-02-25T02:28:06.038811",
+    "completed_at": "2026-02-25T02:28:18.802035",
+    "duration_seconds": 12.76
+}
+```
+
+41.7 seconds of audio transcribed in 12.76 seconds (3.3x real-time) on a single A10G GPU.
+
+### Step 4 — Get transcription result
+
+```bash
+curl http://localhost:8000/api/audio/1/transcript
+```
+
+```
+Language: en | Duration: 41.7s | Segments: 14
+
+[ 0.03s -  0.69s]  Hello.
+[ 0.89s -  4.46s]  Refund the headphones, okay?
+[ 4.48s -  5.24s]  Listen here, buddy.
+[ 5.52s -  8.08s]  My sister wants her stupid headphones fixed.
+[ 8.72s - 11.90s]  So you will refund them and send her a new pair.
+[13.43s - 15.29s]  Can you put the manager on, please?
+[16.35s - 16.97s]  Is this the manager?
+[17.89s - 21.28s]  Give my sister a refund on her headphones.
+[21.30s - 24.62s]  I have a guarantee it says you must give me a refund.
+[25.14s - 27.74s]  Without it, you're breaking the law of false advertising.
+[28.09s - 31.40s]  If you want me to continue to prosecute you, I shall do so.
+[32.11s - 36.08s]  Now, without further ado, will you please refund my sister's headphones?
+[37.28s - 38.69s]  No, no, no!
+[39.35s - 41.50s]  Refund the headphones now!
+```
+
+### Step 5 — Word-level timestamps
+
+Each word includes a precise timestamp and confidence score:
+
+```
+ 0.03s -  0.69s  [0.95]  Hello.
+ 0.89s -  1.29s  [0.79]  Refund
+ 1.31s -  1.37s  [0.88]  the
+ 1.45s -  2.09s  [0.89]  headphones,
+ 4.48s -  4.74s  [0.90]  Listen
+ 4.78s -  4.96s  [0.70]  here,
+ 4.98s -  5.24s  [0.88]  buddy.
+ ...
+40.11s - 40.69s  [0.77]  headphones
+40.97s - 41.50s  [0.73]  now!
+```
+
+### Step 6 — Speaker diarization
+
+Using WhisperX's built-in pyannote speaker-diarization-3.1:
+
+```python
+engine = TranscriptionEngine()
+result = engine.transcribe("test_audio.mp3", enable_diarization=True)
+```
+
+```
+Language: en | Duration: 41.7s | Segments: 14
+Speakers: 1 — SPEAKER_00
+
+[ 0.0s -  0.7s]  SPEAKER_00:  Hello.
+[ 0.9s -  4.5s]  SPEAKER_00:  Refund the headphones, okay?
+[ 4.5s -  5.2s]  SPEAKER_00:  Listen here, buddy.
+[ 5.5s -  8.1s]  SPEAKER_00:  My sister wants her stupid headphones fixed.
+[ 8.7s - 11.9s]  SPEAKER_00:  So you will refund them and send her a new pair.
+[13.4s - 15.3s]  SPEAKER_00:  Can you put the manager on, please?
+[16.4s - 17.0s]  SPEAKER_00:  Is this the manager?
+[17.9s - 21.3s]  SPEAKER_00:  Give my sister a refund on her headphones.
+[21.3s - 24.6s]  SPEAKER_00:  I have a guarantee it says you must give me a refund.
+[25.1s - 27.7s]  SPEAKER_00:  Without it, you're breaking the law of false advertising.
+[28.1s - 31.4s]  SPEAKER_00:  If you want me to continue to prosecute you, I shall do so.
+[32.1s - 36.1s]  SPEAKER_00:  Now, without further ado, will you please refund my sister's headphones?
+[37.3s - 38.7s]  SPEAKER_00:  No, no, no!
+[39.3s - 41.5s]  SPEAKER_00:  Refund the headphones now!
+```
+
+The diarization model correctly identified this as a single-speaker recording — a one-sided phone call where only the caller's voice was captured. For multi-speaker audio, the system assigns distinct labels (SPEAKER_00, SPEAKER_01, ...) to each participant.
+
+### Performance Summary
+
+| Metric | Value |
+| ------ | ----- |
+| Audio duration | 41.7s |
+| Transcription time | 12.76s |
+| Real-time factor | 3.3x faster than real-time |
+| Model | WhisperX large-v3 (FP16) |
+| GPU | NVIDIA A10G (24 GB) |
+| Batch size | 32 |
+| Word count | 90 words with timestamps |
+| Segments | 14 |
+| Language detected | English (confidence: 1.00) |
+
 ## License
 
 Apache 2.0 - See [LICENSE](LICENSE) for details.
