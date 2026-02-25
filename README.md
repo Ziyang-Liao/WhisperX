@@ -287,6 +287,38 @@ Response:
 
 `wav` · `mp3` · `flac` · `m4a` · `ogg`
 
+## Language Support
+
+WhisperX `large-v3` supports **99 languages** with automatic detection. The engine analyzes the first 30 seconds of audio to identify the language — no manual configuration needed.
+
+Top supported languages and their typical accuracy:
+
+| Language | Code | Auto-Detection | Notes |
+| -------- | ---- | -------------- | ----- |
+| English | `en` | ✅ Excellent | Best accuracy overall |
+| Chinese (Mandarin) | `zh` | ✅ Excellent | Simplified & Traditional |
+| Japanese | `ja` | ✅ Excellent | |
+| Korean | `ko` | ✅ Excellent | |
+| German | `de` | ✅ Excellent | |
+| French | `fr` | ✅ Excellent | |
+| Spanish | `es` | ✅ Excellent | |
+| Russian | `ru` | ✅ Good | |
+| Arabic | `ar` | ✅ Good | |
+| Hindi | `hi` | ✅ Good | |
+| Portuguese | `pt` | ✅ Good | |
+| Italian | `it` | ✅ Good | |
+| ... | ... | ... | 99 languages total |
+
+If you know the language in advance, you can skip auto-detection (saves ~1s) by specifying it in the `TranscriptionEngine`:
+
+```python
+# Auto-detect (default)
+result = engine.transcribe("audio.mp3")
+
+# Manual override — skips detection, slightly faster
+model.transcribe(audio, batch_size=32, language="zh")
+```
+
 ## GPU Configuration
 
 The engine auto-detects the best device at startup:
