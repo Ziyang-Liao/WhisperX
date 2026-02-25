@@ -57,12 +57,32 @@ A full-stack batch speech-to-text platform powered by [WhisperX](https://github.
 - Node.js 18+
 - NVIDIA GPU with CUDA 12.x drivers (recommended) or CPU-only mode
 - FFmpeg (required by WhisperX for audio decoding)
+- HuggingFace account with access token (required for speaker diarization)
 
 ```bash
 # Verify GPU availability
 nvidia-smi
 python3 -c "import torch; print(torch.cuda.is_available())"
 ```
+
+### Speaker Diarization Setup (Required)
+
+WhisperX uses [pyannote.audio](https://github.com/pyannote/pyannote-audio) for speaker diarization. The pyannote models are **gated** — you must manually accept the license terms on HuggingFace before they can be downloaded.
+
+**Step 1:** Create a HuggingFace access token at https://hf.co/settings/tokens
+
+**Step 2:** Accept the user agreement on both model pages (click "Agree and access repository"):
+- https://huggingface.co/pyannote/speaker-diarization-3.1
+- https://huggingface.co/pyannote/segmentation-3.0
+
+**Step 3:** Configure the token on your machine:
+
+```bash
+huggingface-cli login
+# Paste your token when prompted
+```
+
+> ⚠️ Without completing these steps, speaker diarization will be silently skipped and transcription results will not include speaker labels.
 
 ## Installation
 
