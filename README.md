@@ -164,6 +164,19 @@ cd WhisperX
 
 ### 2. Backend setup
 
+> **Tested Dependency Versions** — The following versions are verified to work together:
+>
+> | Package | Version |
+> | ------- | ------- |
+> | PyTorch | 2.8.0+cu128 |
+> | NumPy | 2.0.2 |
+> | Transformers | 4.49.0 |
+> | WhisperX | 3.7.5 |
+> | CTranslate2 | 4.7.1 |
+> | FastAPI | 0.128.0 |
+> | SQLAlchemy | 2.0.46 |
+> | Pydantic | 2.12.5 |
+
 ```bash
 cd backend
 
