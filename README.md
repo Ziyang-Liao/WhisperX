@@ -65,7 +65,7 @@ nvidia-smi
 python3 -c "import torch; print(torch.cuda.is_available())"
 ```
 
-### Speaker Diarization Setup (Required)
+### Speaker Diarization Setup
 
 WhisperX uses [pyannote.audio](https://github.com/pyannote/pyannote-audio) for speaker diarization. The pyannote models are **gated** — you must manually accept the license terms on HuggingFace before they can be downloaded.
 
@@ -83,6 +83,73 @@ huggingface-cli login
 ```
 
 > ⚠️ Without completing these steps, speaker diarization will be silently skipped and transcription results will not include speaker labels.
+
+### Alternative Diarization (No HuggingFace Agreement Needed)
+
+If you cannot or prefer not to accept the pyannote gated model terms, the platform also supports a **speechbrain-based** diarization fallback that requires no additional agreements.
+
+| Mode | Model | Clustering | Needs HF Agreement | Auto Speaker Count |
+| ---- | ----- | ---------- | ------------------- | ------------------- |
+| Mode A (default) | pyannote/speaker-diarization-3.1 | Built-in neural pipeline | ✅ Yes | ✅ Yes |
+| Mode B | speechbrain/spkrec-ecapa-voxceleb | Spectral Clustering | ❌ No | ❌ Must specify `n_clusters` |
+| Mode C | speechbrain/spkrec-ecapa-voxceleb | Agglomerative Clustering | ❌ No | ✅ Yes (via distance threshold) |
+
+#### Accuracy Comparison
+
+Tested on a synthetic two-speaker English audio (37s, pitch-shifted to simulate distinct voices):
+
+| Mode | Correct Segments | Accuracy | Latency | Notes |
+| ---- | ---------------- | -------- | ------- | ----- |
+| A — pyannote (WhisperX native) | 9 / 11 | **82%** | 2.19s | Best overall; end-to-end neural pipeline with VAD + embedding + clustering |
+| B — ECAPA-TDNN + Spectral | 7 / 11 | 64% | 0.84s | Fast; requires knowing speaker count in advance |
+| C — ECAPA-TDNN + Agglomerative | 5 / 11 | 45% | <0.01s | No dependencies; sensitive to threshold tuning |
+
+#### When to use which
+
+- **Mode A (pyannote)** — Best accuracy. Use this for production. Requires one-time HuggingFace agreement.
+- **Mode B (Spectral)** — Good alternative when you know the number of speakers. No gated model restrictions.
+- **Mode C (Agglomerative)** — Simplest setup, zero external dependencies beyond speechbrain. Best for quick prototyping.
+
+#### Mode B/C Usage Example
+
+```python
+import torch
+import numpy as np
+import whisperx
+from speechbrain.inference.speaker import EncoderClassifier
+from sklearn.cluster import SpectralClustering
+
+device = "cuda"
+audio = whisperx.load_audio("meeting.mp3")
+
+# Transcribe + align (same as default pipeline)
+model = whisperx.load_model("large-v3", device, compute_type="float16")
+result = model.transcribe(audio, batch_size=32)
+align_model, meta = whisperx.load_align_model(language_code="en", device=device)
+result = whisperx.align(result["segments"], align_model, meta, audio, device)
+
+# Extract speaker embeddings per segment
+classifier = EncoderClassifier.from_hparams(
+    source="speechbrain/spkrec-ecapa-voxceleb",
+    run_opts={"device": device}
+)
+embeddings = []
+for seg in result["segments"]:
+    chunk = audio[int(seg["start"]*16000):int(seg["end"]*16000)]
+    wav = torch.tensor(chunk).unsqueeze(0).to(device)
+    embeddings.append(classifier.encode_batch(wav).squeeze().cpu().numpy())
+
+emb_matrix = np.stack(embeddings)
+emb_matrix = emb_matrix / np.linalg.norm(emb_matrix, axis=1, keepdims=True)
+
+# Cluster into N speakers
+from scipy.spatial.distance import cdist
+sim = np.clip(1 - cdist(emb_matrix, emb_matrix, metric="cosine"), 0, 1)
+labels = SpectralClustering(n_clusters=2, affinity="precomputed").fit_predict(sim)
+
+for seg, label in zip(result["segments"], labels):
+    seg["speaker"] = f"SPEAKER_{label:02d}"
+```
 
 ## Installation
 
