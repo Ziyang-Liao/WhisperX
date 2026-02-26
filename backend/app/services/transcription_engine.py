@@ -125,13 +125,13 @@ class TranscriptionEngine:
         if enable_diarization:
             try:
                 from huggingface_hub import HfFolder
-                from whisperx.diarize import DiarizationPipeline, assign_word_speakers
+                from whisperx.diarize import DiarizationPipeline
                 hf_token = HfFolder.get_token()
                 diarize_model = DiarizationPipeline(
                     use_auth_token=hf_token, device=self.device
                 )
                 diarize_segments = diarize_model(audio_path)
-                result = assign_word_speakers(diarize_segments, result)
+                result = self._resegment_by_diarization(result, diarize_segments)
             except Exception as exc:
                 logger.warning(
                     "Speaker diarization failed, returning without speakers: %s", exc
@@ -188,6 +188,62 @@ class TranscriptionEngine:
         """Check if an exception is a CUDA out-of-memory error."""
         msg = str(exc).lower()
         return "out of memory" in msg or ("cuda" in msg and "oom" in msg)
+
+    @staticmethod
+    def _resegment_by_diarization(result: dict, diarize_segments) -> dict:
+        """Re-segment aligned words by diarization speaker boundaries.
+
+        Instead of assigning speakers to existing (coarse) ASR segments via
+        majority vote, this collects all words, assigns each word a speaker
+        based on time overlap with diarization output, then groups consecutive
+        same-speaker words into new segments.  This preserves speaker switches
+        that would otherwise be lost in long ASR segments.
+        """
+        # Collect all words with timestamps
+        all_words = []
+        for seg in result.get("segments", []):
+            for w in seg.get("words", []):
+                if "start" in w and "end" in w:
+                    all_words.append(dict(w))
+        if not all_words:
+            return result
+
+        # Assign speaker to each word by max time overlap with diarization
+        for w in all_words:
+            best_speaker, best_overlap = None, 0.0
+            for _, row in diarize_segments.iterrows():
+                overlap = min(w["end"], row["end"]) - max(w["start"], row["start"])
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_speaker = row["speaker"]
+            w["speaker"] = best_speaker
+
+        # Group consecutive same-speaker words into new segments
+        segments: list[dict] = []
+        cur_words: list[dict] = []
+        cur_speaker = None
+        for w in all_words:
+            if w["speaker"] != cur_speaker and cur_words:
+                segments.append({
+                    "start": cur_words[0]["start"],
+                    "end": cur_words[-1]["end"],
+                    "text": " ".join(cw["word"] for cw in cur_words),
+                    "speaker": cur_speaker,
+                    "words": cur_words,
+                })
+                cur_words = []
+            cur_speaker = w["speaker"]
+            cur_words.append(w)
+        if cur_words:
+            segments.append({
+                "start": cur_words[0]["start"],
+                "end": cur_words[-1]["end"],
+                "text": " ".join(cw["word"] for cw in cur_words),
+                "speaker": cur_speaker,
+                "words": cur_words,
+            })
+
+        return {"segments": segments}
 
     @staticmethod
     def _build_result(
