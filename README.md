@@ -633,6 +633,10 @@ Segments: 9
 | Segments | 14 |
 | Language detected | English (confidence: 1.00) |
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed release history.
+
 ## License
 
 Apache 2.0 - See [LICENSE](LICENSE) for details.
