@@ -633,6 +633,42 @@ Segments: 9
 | Segments | 14 |
 | Language detected | English (confidence: 1.00) |
 
+### GPU Benchmark: g4dn vs g5 vs g6
+
+All benchmarks use WhisperX `large-v3` with FP16, batch size 32, warm start (model pre-loaded in VRAM). Inference time excludes model loading.
+
+**Test environment:**
+
+| Instance | GPU | VRAM | vCPU | On-Demand Price (us-east-1) |
+| -------- | --- | ---- | ---- | --------------------------- |
+| g4dn.xlarge | NVIDIA T4 | 16 GB | 4 | ~$0.526/hr |
+| g5.2xlarge | NVIDIA A10G | 24 GB | 8 | ~$1.212/hr |
+| g6.xlarge | NVIDIA L4 | 24 GB | 4 | ~$0.805/hr |
+
+**36-second audio (transcription + alignment, avg of 3 runs):**
+
+| Instance | GPU | Inference Time | Real-Time Factor |
+| -------- | --- | -------------- | ---------------- |
+| g4dn.xlarge | T4 (16 GB) | 4.28s | 8.5x |
+| g6.xlarge | L4 (24 GB) | 3.04s | 11.9x |
+| g5.2xlarge | A10G (24 GB) | 2.63s | **13.7x** |
+
+**5.4-minute audio (transcription + alignment):**
+
+| Instance | GPU | Inference Time | Real-Time Factor |
+| -------- | --- | -------------- | ---------------- |
+| g4dn.xlarge | T4 (16 GB) | 15.51s | 21.0x |
+| g5.2xlarge | A10G (24 GB) | 9.53s | 34.1x |
+| g6.xlarge | L4 (24 GB) | 9.44s | **34.5x** |
+
+**Key findings:**
+
+- **G6 (L4) offers the best price-performance** — matches A10G throughput on longer audio at ~66% of the cost.
+- **G5 (A10G) leads on short audio** — higher memory bandwidth helps with small batch workloads.
+- **G4dn (T4) is ~1.6x slower** but remains viable for cost-sensitive or low-throughput use cases.
+- All three GPUs scale well: RTF improves significantly with longer audio due to better batch utilization.
+- CPU inference (int8, tested on g5.2xlarge) took ~44s for 36s audio (0.8x real-time) — roughly **17x slower** than GPU.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for a detailed release history.
