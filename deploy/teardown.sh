@@ -13,6 +13,24 @@ ACCT=$(aws sts get-caller-identity --query Account --output text)
 
 [ -f deploy-state.env ] && source ./deploy-state.env
 
+say "Disabling + deleting CloudFront distribution"
+if [ -n "${CLOUDFRONT_DIST_ID:-}" ]; then
+  # CloudFront must be disabled, fully propagated, then deleted (needs ETag).
+  ETAG=$(aws cloudfront get-distribution-config --id "$CLOUDFRONT_DIST_ID" --query ETag --output text 2>/dev/null || echo "")
+  if [ -n "$ETAG" ]; then
+    aws cloudfront get-distribution-config --id "$CLOUDFRONT_DIST_ID" \
+      --query DistributionConfig --output json > /tmp/cf.json 2>/dev/null || true
+    python3 -c "import json;d=json.load(open('/tmp/cf.json'));d['Enabled']=False;json.dump(d,open('/tmp/cf.json','w'))" 2>/dev/null || true
+    aws cloudfront update-distribution --id "$CLOUDFRONT_DIST_ID" \
+      --distribution-config file:///tmp/cf.json --if-match "$ETAG" >/dev/null 2>&1 || true
+    echo "disable requested; waiting for deployed state (can take ~10-15 min)..."
+    aws cloudfront wait distribution-deployed --id "$CLOUDFRONT_DIST_ID" 2>/dev/null || true
+    NEWTAG=$(aws cloudfront get-distribution-config --id "$CLOUDFRONT_DIST_ID" --query ETag --output text 2>/dev/null || echo "")
+    aws cloudfront delete-distribution --id "$CLOUDFRONT_DIST_ID" --if-match "$NEWTAG" 2>/dev/null \
+      && echo "deleted $CLOUDFRONT_DIST_ID" || echo "delete CF manually if still 'InProgress'"
+  fi
+fi
+
 say "Terminating EC2 instance"
 if [ -n "${INSTANCE_ID:-}" ]; then
   aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" >/dev/null 2>&1 || true

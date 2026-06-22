@@ -67,9 +67,30 @@ group (TCP 8000), `c7i.2xlarge` CPU instance running the app via systemd
 
 > ⚠️ The bootstrap installs a **static ffmpeg** build — AL2023's repos don't carry `ffmpeg`.
 
+## Network architecture (front door)
+
+The instance is **not** exposed directly. CloudFront is the only public entry:
+
+```
+viewer ──HTTPS──▶ CloudFront ──HTTP + X-Origin-Secret──▶ EC2 :8000
+```
+
+- EC2 security group allows `:8000` **only** from CloudFront's managed
+  origin-facing prefix list (`pl-3b927c52`) — direct public TCP is dropped
+  (verified: hitting the instance IP returns HTTP 000).
+- CloudFront injects an `X-Origin-Secret` header; the app (`ORIGIN_SECRET` env)
+  403s anything without it — defends against other CloudFront tenants, since the
+  prefix list is shared.
+- Run `deploy/front-door.sh` after `deploy.sh` to create this. See `deploy/README.md`.
+
+Caveat: no custom domain, so CloudFront→origin is HTTP (viewer→CloudFront is
+HTTPS). End-to-end TLS needs a domain + ACM + ALB — a Phase 4 item.
+
 ## Known gaps / next phases
 
-- **No auth on the API yet** (Phase 4) — port 8000 is open; fine for a temp test box, not production.
+- **No app-level user auth yet** (Phase 4) — the origin is locked to CloudFront,
+  but there's no per-user login. Add Cognito/API keys + a custom domain with
+  end-to-end TLS (domain → ACM cert → optionally an ALB) before real production.
 - **Frontend** not yet updated for video upload / language multi-select / `<video><track>` preview (Phase 3).
 - **Alembic** migrations not added (new schema starts clean; needed once there's real data).
 - SQLite is single-box; move to RDS Postgres if scaling to multiple workers (design §11).

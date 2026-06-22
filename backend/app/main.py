@@ -1,7 +1,9 @@
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 
 @asynccontextmanager
@@ -48,13 +50,46 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: when an explicit origin is configured (the CloudFront domain), use it
+# with credentials; otherwise fall back to permissive (local dev). The
+# "*" + allow_credentials=True combination is invalid per the CORS spec, so we
+# only enable credentials when a concrete origin is set.
+_cors_origin = os.environ.get("CORS_ALLOW_ORIGIN")
+if _cors_origin:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[_cors_origin],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+# Origin lock: when ORIGIN_SECRET is set, every request (except liveness) must
+# carry a matching X-Origin-Secret header. CloudFront injects it as a custom
+# origin header, so requests that bypass CloudFront and hit the instance
+# directly are rejected with 403. This is the second layer alongside the
+# security group (which only allows CloudFront's shared origin-facing prefix
+# list — necessary but not sufficient on its own).
+_ORIGIN_SECRET = os.environ.get("ORIGIN_SECRET")
+_ORIGIN_EXEMPT_PATHS = {"/health"}
+
+
+@app.middleware("http")
+async def _enforce_origin_secret(request: Request, call_next):
+    if _ORIGIN_SECRET and request.url.path not in _ORIGIN_EXEMPT_PATHS:
+        if request.headers.get("x-origin-secret") != _ORIGIN_SECRET:
+            return JSONResponse(status_code=403, content={"detail": "forbidden"})
+    return await call_next(request)
+
 
 from app.routers import audio, media, transcription
 
