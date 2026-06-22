@@ -96,6 +96,21 @@ aws ec2 authorize-security-group-ingress --group-id "$SG_ID" \
   --ip-permissions "IpProtocol=tcp,FromPort=${APP_PORT},ToPort=${APP_PORT},PrefixListIds=[{PrefixListId=${CF_PREFIX_LIST}}]" \
   2>/dev/null || echo "(prefix-list rule may already exist)"
 
+say "Setting S3 CORS so the browser can presigned-PUT from the CloudFront origin"
+cat > /tmp/s3-cors.json <<JSON
+{
+  "CORSRules": [{
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedOrigins": ["https://${DIST_DOMAIN}"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }]
+}
+JSON
+aws s3api put-bucket-cors --bucket "$BUCKET" --cors-configuration file:///tmp/s3-cors.json \
+  && echo "S3 CORS set for https://${DIST_DOMAIN}"
+
 cat >> deploy-state.env <<EOF
 # --- front door (front-door.sh) ---
 CLOUDFRONT_DIST_ID=$DIST_ID

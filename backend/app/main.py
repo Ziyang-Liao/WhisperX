@@ -101,3 +101,27 @@ app.include_router(media.router, prefix="/api")
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+# Serve the built frontend SPA (if present). FRONTEND_DIST points at the Vite
+# build output. The catch-all returns index.html for client-side routes, but
+# /api/* and /health are matched above and never reach here.
+_FRONTEND_DIST = os.environ.get("FRONTEND_DIST", "/opt/whisperx/frontend")
+if os.path.isdir(_FRONTEND_DIST):
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    # Hashed assets under /assets are served directly.
+    _assets = os.path.join(_FRONTEND_DIST, "assets")
+    if os.path.isdir(_assets):
+        app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+    _index = os.path.join(_FRONTEND_DIST, "index.html")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        # Don't hijack API/health (already routed) — only serve the SPA shell.
+        candidate = os.path.join(_FRONTEND_DIST, full_path)
+        if full_path and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(_index)

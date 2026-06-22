@@ -31,12 +31,21 @@ aws s3api put-bucket-tagging --bucket "$BUCKET" \
   --tagging "TagSet=[{Key=$TAG_KEY,Value=$TAG_VAL}]" || true
 echo "bucket ready: $BUCKET"
 
-say "Packaging and uploading app code"
+say "Building frontend (vite)"
+if command -v npm >/dev/null 2>&1; then
+  ( cd ../frontend && npm install --no-audit --no-fund >/dev/null 2>&1 && npm run build >/dev/null 2>&1 ) \
+    && echo "frontend built -> frontend/dist" || { echo "frontend build FAILED"; exit 1; }
+else
+  echo "npm not found; skipping frontend build (UI won't be served)"
+fi
+
+say "Packaging and uploading app code (backend + built frontend)"
 TARBALL=$(mktemp /tmp/app.XXXXXX.tar.gz)
-# Ship backend + docs only; exclude caches and local data.
+# Ship backend + the built SPA (frontend/dist). Exclude caches and local data.
 tar -czf "$TARBALL" -C .. \
   --exclude='backend/data' --exclude='**/__pycache__' --exclude='**/.pytest_cache' \
-  --exclude='**/.hypothesis' backend
+  --exclude='**/.hypothesis' \
+  backend $( [ -d ../frontend/dist ] && echo frontend/dist )
 aws s3 cp "$TARBALL" "s3://$BUCKET/deploy/app.tar.gz" >/dev/null
 rm -f "$TARBALL"
 echo "app uploaded to s3://$BUCKET/deploy/app.tar.gz"

@@ -18,3 +18,4 @@ history.txt
 
 # Generated deploy state (live resource ids)
 deploy/deploy-state.env
+deploy/ui-evidence/
