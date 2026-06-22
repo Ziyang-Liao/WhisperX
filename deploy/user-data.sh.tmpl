@@ -31,11 +31,15 @@ cd /opt/whisperx/backend
 pip3.11 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 pip3.11 install --no-cache-dir -r requirements.txt
 
+# Persistent data dir for the SQLite DB (absolute path so it doesn't depend on CWD).
+mkdir -p /opt/whisperx/data
+
 # Environment for the app (S3_BUCKET presence also enables the worker).
 cat > /etc/whisperx.env <<EOF
 S3_BUCKET=__BUCKET__
 AWS_REGION=__REGION__
 BEDROCK_MODEL_ID=__MODEL__
+DATABASE_URL=sqlite:////opt/whisperx/data/speech_to_text.db
 WHISPER_DEVICE=cpu
 WHISPER_COMPUTE_TYPE=int8
 EOF
