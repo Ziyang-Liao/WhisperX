@@ -52,16 +52,19 @@ def main():
 
         # 2. Upload a video (hidden file input)
         print("[2] uploading video")
+        filename = os.path.basename(VIDEO)
         page.set_input_files('[data-testid="file-input"]', VIDEO)
         # Upload button shows progress, then the row appears.
         page.wait_for_selector('[data-testid="media-table"]', timeout=60000)
         shot(page, "uploaded-listed")
 
-        # 3. Grab the media id from the row
-        row = page.locator('tr[data-testid^="media-row-"]').first
+        # 3. Identify OUR row by filename (not .first — other media may exist and
+        # sort above ours, e.g. an unrelated upload still processing).
+        row = page.locator('tr[data-testid^="media-row-"]', has=page.get_by_role("link", name=filename)).first
+        expect(row).to_be_visible(timeout=30000)
         media_testid = row.get_attribute("data-testid")
         media_id = int(media_testid.rsplit("-", 1)[1])
-        print(f"    media_id={media_id}")
+        print(f"    media_id={media_id} (file={filename})")
 
         # 4. Wait for transcription to complete (poll the row's status badge)
         print("[4] waiting for transcription")
