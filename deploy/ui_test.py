@@ -128,6 +128,41 @@ def main():
         dl = page.locator(f'[data-testid="dl-srt-{LANGS[0]}"]')
         expect(dl).to_be_enabled()
 
+        # 9. DEEP-LINK / REFRESH — directly load /media/{id} in a COLD context
+        # (empty cache, like a first-time visitor or a hard refresh). This is the
+        # path a click-through test misses; a stale cached index.html pointing at
+        # a missing JS bundle would render a blank #root here.
+        print("[9] deep-link + refresh /media/{id} in a cold browser context")
+        deep_url = f"{BASE}/media/{media_id}"
+        cold = browser.new_context()  # fresh cache
+        dpage = cold.new_page()
+        js_404 = []
+        dpage.on("response", lambda r: js_404.append(r.url)
+                 if r.status >= 400 and (".js" in r.url or ".css" in r.url) else None)
+        for label in ("deep-load", "reload"):
+            if label == "reload":
+                dpage.reload(wait_until="networkidle")
+            else:
+                dpage.goto(deep_url, wait_until="networkidle", timeout=30000)
+            dpage.wait_for_timeout(1500)
+            root_html_len = dpage.eval_on_selector("#root", "el => el.innerHTML.length")
+            print(f"    {label}: #root innerHTML length = {root_html_len}")
+            assert root_html_len and root_html_len > 50, f"{label}: blank #root on deep link"
+            # The detail page heading must render (proves the route booted, not just the shell)
+            expect(dpage.get_by_role("heading").filter(has_text="/").first).to_be_visible(timeout=15000)
+        assert not js_404, f"asset 404s on deep link (stale-cache bug): {js_404}"
+        shot(dpage, "deep-link-direct-load")
+        cold.close()
+
+        # 10. Verify index.html is served no-cache (the fix that prevents the blank page)
+        print("[10] checking index.html cache headers")
+        import urllib.request
+        req = urllib.request.Request(f"{BASE}/media/{media_id}")
+        with urllib.request.urlopen(req, timeout=20) as r:
+            cc = (r.headers.get("Cache-Control") or "").lower()
+        print(f"    index Cache-Control: {cc!r}")
+        assert "no-cache" in cc or "no-store" in cc, f"index.html must not be cacheable, got {cc!r}"
+
         browser.close()
         print("\nALL UI STEPS PASSED")
         return 0

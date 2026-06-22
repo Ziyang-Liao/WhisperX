@@ -106,15 +106,31 @@ async def health_check():
 # Serve the built frontend SPA (if present). FRONTEND_DIST points at the Vite
 # build output. The catch-all returns index.html for client-side routes, but
 # /api/* and /health are matched above and never reach here.
+#
+# Caching strategy (prevents the blank-page-on-deep-link bug): index.html is the
+# entry point and must NEVER be cached — otherwise a browser can pin an old
+# index.html that references a hashed JS bundle which no longer exists on the
+# origin, leaving an empty #root. Vite asset filenames are content-hashed, so
+# /assets/* are safe to cache immutably.
 _FRONTEND_DIST = os.environ.get("FRONTEND_DIST", "/opt/whisperx/frontend")
 if os.path.isdir(_FRONTEND_DIST):
     from fastapi.responses import FileResponse
-    from fastapi.staticfiles import StaticFiles
+    from starlette.staticfiles import StaticFiles
 
-    # Hashed assets under /assets are served directly.
+    _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+    _IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+    class _ImmutableStatic(StaticFiles):
+        """StaticFiles that marks hashed assets immutable (cache forever)."""
+
+        def file_response(self, *args, **kwargs):
+            resp = super().file_response(*args, **kwargs)
+            resp.headers.update(_IMMUTABLE)
+            return resp
+
     _assets = os.path.join(_FRONTEND_DIST, "assets")
     if os.path.isdir(_assets):
-        app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+        app.mount("/assets", _ImmutableStatic(directory=_assets), name="assets")
 
     _index = os.path.join(_FRONTEND_DIST, "index.html")
 
@@ -122,6 +138,7 @@ if os.path.isdir(_FRONTEND_DIST):
     async def spa_fallback(full_path: str):
         # Don't hijack API/health (already routed) — only serve the SPA shell.
         candidate = os.path.join(_FRONTEND_DIST, full_path)
-        if full_path and os.path.isfile(candidate):
+        if full_path and os.path.isfile(candidate) and not full_path.endswith(".html"):
             return FileResponse(candidate)
-        return FileResponse(_index)
+        # index.html (and any client-side route) — always revalidate.
+        return FileResponse(_index, headers=_NO_CACHE)
