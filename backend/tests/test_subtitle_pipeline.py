@@ -42,9 +42,19 @@ class FakeStorage:
 
 class FakeTranscriptResult:
     language = "en"
+    # One coarse segment with two sentences + word timings — the chunker should
+    # split it into two short cues (mirrors real WhisperX output).
     segments = [
-        {"start": 0.0, "end": 1.5, "text": "hello"},
-        {"start": 1.5, "end": 3.0, "text": "world"},
+        {
+            "start": 0.0, "end": 3.0, "text": "Hello there. How are you?",
+            "words": [
+                {"word": "Hello", "start": 0.0, "end": 0.4},
+                {"word": "there.", "start": 0.5, "end": 0.9},
+                {"word": "How", "start": 2.0, "end": 2.2},
+                {"word": "are", "start": 2.3, "end": 2.5},
+                {"word": "you?", "start": 2.6, "end": 3.0},
+            ],
+        },
     ]
 
     def to_json(self):
@@ -92,7 +102,13 @@ def test_process_media_creates_source_track_and_files(db, monkeypatch):
     # SRT + VTT both written
     assert "subtitles/1/en.srt" in pipe.storage.objects
     assert "subtitles/1/en.vtt" in pipe.storage.objects
-    assert pipe.storage.objects["subtitles/1/en.srt"].decode().startswith("1\n00:00:00,000")
+    srt = pipe.storage.objects["subtitles/1/en.srt"].decode()
+    assert srt.startswith("1\n00:00:00,000")
+    # The coarse segment was re-chunked into two short, word-timed cues.
+    assert "Hello there." in srt and "How are you?" in srt
+    assert "\n2\n" in srt  # at least two cues
+    # Second cue starts when its words are spoken (2.0s), not at segment start.
+    assert "00:00:02,000 -->" in srt
 
 
 def test_process_track_translates_and_preserves_timing(db, monkeypatch):
@@ -111,9 +127,11 @@ def test_process_track_translates_and_preserves_timing(db, monkeypatch):
     db.refresh(track)
     assert track.status == "completed"
     srt = pipe.storage.objects["subtitles/1/ja.srt"].decode()
-    assert "[ja]hello" in srt and "[ja]world" in srt
-    # Same timing as source
-    assert "00:00:00,000 --> 00:00:01,500" in srt
+    # Translation runs on the SHORT chunked cues, so each is translated separately.
+    assert "[ja]Hello there." in srt and "[ja]How are you?" in srt
+    # Cue timings carry over from the source cues (first cue 0.0->0.9).
+    assert "00:00:00,000 --> 00:00:00,900" in srt
+    assert "00:00:02,000 -->" in srt
 
 
 def test_translation_failure_marks_track_failed(db, monkeypatch):

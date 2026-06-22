@@ -23,23 +23,36 @@ from sqlalchemy.orm import Session
 from app.models.media_file import MediaFile
 from app.models.subtitle_track import SubtitleTrack
 from app.services import storage as storage_keys
-from app.services.subtitles import cues_from_segments, to_srt, to_vtt
+from app.services.subtitles import SubtitleCue, chunk_into_cues, to_srt, to_vtt
 
 logger = logging.getLogger(__name__)
 
 
 def _segments_to_dicts(transcript_result) -> list[dict]:
-    """Normalize a TranscriptResult (or dict) into [{start,end,text}]."""
+    """Normalize a TranscriptResult (or dict) into [{start,end,text,words}].
+
+    Word-level timings are preserved so the subtitle layer can re-chunk coarse
+    segments into short, synced cues.
+    """
     segments = getattr(transcript_result, "segments", None)
     if segments is None and isinstance(transcript_result, dict):
         segments = transcript_result.get("segments", [])
     out = []
     for seg in segments or []:
         if isinstance(seg, dict):
+            words = [
+                {"word": w.get("word", ""), "start": w.get("start"), "end": w.get("end")}
+                for w in (seg.get("words") or [])
+            ]
             out.append({"start": seg.get("start", 0.0), "end": seg.get("end", 0.0),
-                        "text": seg.get("text", "")})
+                        "text": seg.get("text", ""), "words": words})
         else:
-            out.append({"start": seg.start, "end": seg.end, "text": seg.text})
+            words = [
+                {"word": w.word, "start": w.start, "end": w.end}
+                for w in (getattr(seg, "words", None) or [])
+            ]
+            out.append({"start": seg.start, "end": seg.end, "text": seg.text,
+                        "words": words})
     return out
 
 
@@ -79,16 +92,22 @@ class SubtitlePipeline:
             media.transcript_json = _result_to_json(result)
             media.source_language = language
 
+            # Re-chunk coarse segments into short, word-timed cues (movie-style).
+            cues = chunk_into_cues(segments)
+
             # Create/refresh the source-language track and write its files.
             self._write_subtitle_files(
                 media_id=media.id,
                 language=language,
-                segments=segments,
+                cues=cues,
                 is_source=True,
             )
             media.transcription_status = "completed"
             self.db.commit()
-            logger.info("media %s transcribed (%s, %d segments)", media_id, language, len(segments))
+            logger.info(
+                "media %s transcribed (%s, %d segments -> %d cues)",
+                media_id, language, len(segments), len(cues),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("transcription failed for media %s", media_id)
             self.db.rollback()
@@ -119,20 +138,33 @@ class SubtitlePipeline:
 
         try:
             segments = _segments_to_dicts(json.loads(media.transcript_json))
+            # Chunk into short cues FIRST, then translate those cues — so the
+            # translated subtitles are just as short and share the cue timings.
+            source_cues = chunk_into_cues(segments)
+            cue_segments = [
+                {"start": c.start, "end": c.end, "text": c.text} for c in source_cues
+            ]
             translated = self.translation_engine.translate_segments(
-                segments, target_language=track.language,
+                cue_segments, target_language=track.language,
                 source_language=media.source_language,
             )
+            translated_cues = [
+                SubtitleCue(start=t["start"], end=t["end"], text=t["text"])
+                for t in translated
+            ]
             self._write_subtitle_files(
                 media_id=media.id,
                 language=track.language,
-                segments=translated,
+                cues=translated_cues,
                 is_source=False,
                 track=track,
             )
             track.status = "completed"
             self.db.commit()
-            logger.info("media %s translated -> %s", media.id, track.language)
+            logger.info(
+                "media %s translated -> %s (%d cues)",
+                media.id, track.language, len(translated_cues),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("translation failed for track %s", track_id)
             self.db.rollback()
@@ -145,11 +177,10 @@ class SubtitlePipeline:
     # --- shared --------------------------------------------------------------
 
     def _write_subtitle_files(
-        self, media_id: int, language: str, segments: list[dict],
+        self, media_id: int, language: str, cues: list,
         is_source: bool, track: SubtitleTrack | None = None,
     ) -> SubtitleTrack:
-        """Render SRT+VTT, upload to S3, and upsert the SubtitleTrack row."""
-        cues = cues_from_segments(segments)
+        """Render SRT+VTT from cues, upload to S3, and upsert the SubtitleTrack row."""
         srt_key = storage_keys.subtitle_key(media_id, language, "srt")
         vtt_key = storage_keys.subtitle_key(media_id, language, "vtt")
         self.storage.put_bytes(srt_key, to_srt(cues).encode("utf-8"), "text/plain; charset=utf-8")
