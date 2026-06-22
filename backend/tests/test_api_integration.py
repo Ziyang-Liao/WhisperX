@@ -30,6 +30,21 @@ def _setup_upload_dir(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.audio_manager.UPLOAD_DIR", upload_dir)
 
 
+@pytest.fixture(autouse=True)
+def _reset_engine_singleton():
+    """Reset the module-level TranscriptionEngine singleton between tests.
+
+    The engine is cached at module level so the multi-GB model only loads once
+    in production. Tests patch `TranscriptionEngine` per-test, so the cached
+    instance must be cleared or a later test reuses an earlier test's mock.
+    """
+    import app.routers.transcription as transcription_router
+
+    transcription_router._engine = None
+    yield
+    transcription_router._engine = None
+
+
 @pytest.fixture
 def db_engine(tmp_path):
     url = f"sqlite:///{tmp_path}/test.db"

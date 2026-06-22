@@ -1,6 +1,8 @@
 from __future__ import annotations
 """Transcription task management API routes."""
 
+import threading
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -12,10 +14,24 @@ from app.services.transcription_engine import TranscriptionEngine
 
 router = APIRouter(prefix="/transcription", tags=["transcription"])
 
+# Module-level singleton engine: the WhisperX model is multi-GB and slow to load.
+# Creating a new TranscriptionEngine per request would reload it every time, so we
+# share one instance across requests. The DB session stays per-request.
+_engine: TranscriptionEngine | None = None
+_engine_lock = threading.Lock()
+
+
+def _get_engine() -> TranscriptionEngine:
+    global _engine
+    if _engine is None:
+        with _engine_lock:
+            if _engine is None:
+                _engine = TranscriptionEngine()
+    return _engine
+
 
 def _get_processor(db: Session = Depends(get_db)) -> BatchProcessor:
-    engine = TranscriptionEngine()
-    return BatchProcessor(db, engine)
+    return BatchProcessor(db, _get_engine())
 
 
 @router.post("/trigger", response_model=TranscriptionTaskResponse, status_code=201)

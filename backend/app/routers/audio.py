@@ -1,7 +1,10 @@
 from __future__ import annotations
 """Audio management API routes."""
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.models.database import get_db
@@ -95,6 +98,34 @@ async def delete_audio(
         raise HTTPException(status_code=409, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Audio file {audio_id} not found")
+
+
+_MEDIA_TYPES = {
+    "wav": "audio/wav",
+    "mp3": "audio/mpeg",
+    "flac": "audio/flac",
+    "m4a": "audio/mp4",
+    "ogg": "audio/ogg",
+}
+
+
+@router.get("/{audio_id}/file")
+async def get_audio_file(
+    audio_id: int,
+    manager: AudioManager = Depends(_get_manager),
+):
+    """Serve the raw audio file for playback (referenced by the frontend player)."""
+    try:
+        record = await manager.get_audio(audio_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Audio file {audio_id} not found")
+
+    path = Path(record.stored_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Audio file is missing from storage")
+
+    media_type = _MEDIA_TYPES.get((record.format or "").lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type, filename=record.filename)
 
 
 @router.get("/{audio_id}/transcript", response_model=TranscriptResult)

@@ -17,6 +17,12 @@ from app.services.transcription_engine import TranscriptionEngine
 
 logger = logging.getLogger(__name__)
 
+# Module-level lock: BatchProcessor instances are created per-request (FastAPI
+# Depends), so a per-instance lock would never serialize concurrent triggers.
+# A shared lock makes the is_running() check-then-create-task sequence atomic
+# across all requests and the scheduler, closing the TOCTOU race.
+_batch_lock = threading.Lock()
+
 
 class BatchProcessor:
     """Executes batch transcription tasks with mutual exclusion."""
@@ -24,7 +30,7 @@ class BatchProcessor:
     def __init__(self, db: Session, engine: TranscriptionEngine):
         self.db = db
         self.engine = engine
-        self._lock = threading.Lock()
+        self._lock = _batch_lock
 
     def is_running(self) -> bool:
         """Check if there is a currently running batch task."""

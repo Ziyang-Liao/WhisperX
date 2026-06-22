@@ -1,0 +1,63 @@
+#!/bin/bash
+# EC2 bootstrap for the WhisperX subtitle app (Amazon Linux 2023, CPU).
+# Templated placeholders (__BUCKET__, __REGION__, __MODEL__, __PORT__) are filled
+# by deploy.sh before launch. Logs to /var/log/whisperx-setup.log.
+set -xe
+exec > /var/log/whisperx-setup.log 2>&1
+echo "=== WhisperX subtitle setup $(date -u) ==="
+
+dnf install -y python3.11 python3.11-pip git tar gzip xz
+
+# ffmpeg is not in the AL2023 default repos; install a static build for the
+# ffmpeg binary (used to extract a 16kHz mono wav from uploaded media).
+install_ffmpeg() {
+  command -v ffmpeg && return 0
+  cd /tmp
+  curl -fsSL -o ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+  tar -xf ffmpeg.tar.xz
+  cp ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg
+  cp ffmpeg-*-amd64-static/ffprobe /usr/local/bin/ffprobe
+  chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+}
+install_ffmpeg
+ffmpeg -version | head -1
+
+# App code is shipped to S3 by deploy.sh as app.tar.gz under the bucket.
+mkdir -p /opt/whisperx
+aws s3 cp "s3://__BUCKET__/deploy/app.tar.gz" /tmp/app.tar.gz --region __REGION__
+tar -xzf /tmp/app.tar.gz -C /opt/whisperx
+
+cd /opt/whisperx/backend
+pip3.11 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+pip3.11 install --no-cache-dir -r requirements.txt
+
+# Environment for the app (S3_BUCKET presence also enables the worker).
+cat > /etc/whisperx.env <<EOF
+S3_BUCKET=__BUCKET__
+AWS_REGION=__REGION__
+BEDROCK_MODEL_ID=__MODEL__
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+EOF
+
+cat > /etc/systemd/system/whisperx.service <<'UNIT'
+[Unit]
+Description=WhisperX subtitle API + worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/whisperx/backend
+EnvironmentFile=/etc/whisperx.env
+ExecStart=/usr/bin/python3.11 -m uvicorn app.main:app --host 0.0.0.0 --port __PORT__
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now whisperx.service
+echo "=== setup complete $(date -u) ==="

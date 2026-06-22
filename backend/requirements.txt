@@ -11,6 +11,8 @@ mutagen
 torch
 ctranslate2
 eval_type_backport
+boto3
 pytest
 pytest-asyncio
 hypothesis
+moto

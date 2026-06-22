@@ -11,3 +11,10 @@ dist/
 .env
 .vscode/
 .kiro/
+
+# Local session transcripts and large binary test fixtures (not project content)
+history.txt
+*.wav
+
+# Generated deploy state (live resource ids)
+deploy/deploy-state.env
