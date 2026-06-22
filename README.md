@@ -1,57 +1,57 @@
-# WhisperX Batch Speech-to-Text Platform
+# 🎬 WhisperX Video Subtitling Platform
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE) [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/) [![NVIDIA CUDA](https://img.shields.io/badge/NVIDIA-CUDA%2012.x-green.svg)](https://developer.nvidia.com/cuda-toolkit) [![WhisperX](https://img.shields.io/badge/WhisperX-large--v3-orange.svg)](https://github.com/m-bain/whisperX) [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE) [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/) [![WhisperX](https://img.shields.io/badge/WhisperX-large--v3-orange.svg)](https://github.com/m-bain/whisperX) [![Amazon Bedrock](https://img.shields.io/badge/Amazon%20Bedrock-Claude-FF9900.svg)](https://aws.amazon.com/bedrock/) [![FastAPI](https://img.shields.io/badge/FastAPI-0.128-009688.svg)](https://fastapi.tiangolo.com/) [![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 
-A full-stack batch speech-to-text platform powered by [WhisperX](https://github.com/m-bain/whisperX). It provides a RESTful API and a web UI for uploading audio files, running GPU-accelerated batch transcription, and browsing results with word-level timestamps.
+> **Upload videos → get accurate, multi-language subtitles.**
+> Transcribe speech with [WhisperX](https://github.com/m-bain/whisperX), translate it into any set of languages with [Claude on Amazon Bedrock](https://aws.amazon.com/bedrock/), and download timing-aligned **SRT / VTT** subtitle files — through a web UI or a REST API.
 
-## Features
+A full-stack platform that turns uploaded videos (or audio) into downloadable subtitles in many languages. Source language is **auto-detected per file**; you pick the target languages you want; every track shares the same timestamps so subtitles stay in sync regardless of language. Videos and subtitles are stored in **Amazon S3**; the whole thing deploys behind **CloudFront** with the origin locked down.
 
-- **GPU-Accelerated Transcription** — Automatic CUDA/CPU detection; runs WhisperX `large-v3` with CTranslate2 FP16 on GPU for maximum throughput.
-- **Batch Processing** — Queue multiple audio files and transcribe them in a single batch task with progress tracking.
-- **Word-Level Alignment** — wav2vec2-based forced alignment produces precise word-level timestamps.
-- **Speaker Diarization** — Optional pyannote.audio-based speaker diarization with per-word speaker labels.
-- **OOM Auto-Recovery** — On CUDA out-of-memory, automatically halves batch size and retries (up to 3 attempts).
-- **Scheduled Transcription** — Cron-based APScheduler integration for automated nightly batch runs.
-- **Audio Management** — Upload, replace, delete, search, and paginate audio files via REST API.
-- **Web Frontend** — React + TypeScript SPA with audio list, detail view, and task monitoring pages.
+## ✨ What it does
 
-## Architecture
+| | Feature |
+| --- | --- |
+| 📤 | **Multi-video upload** — browser uploads stream straight to S3 via presigned URLs (no size bottleneck at the API). |
+| 🌍 | **Multi-language subtitles** — select any number of target languages; each is translated by Claude and saved as its own track. |
+| 🗣️ | **Auto language detection** — WhisperX detects each video's source language; no manual config. Target == source is skipped automatically. |
+| ⏱️ | **Timing-aligned output** — translation reuses source segment timings, so SRT/VTT stay in sync across every language. |
+| 📝 | **SRT + VTT export** — download soft-subtitle files, or preview them inline on an HTML5 `<video>` player. |
+| 🎚️ | **Word-level timestamps + diarization** — WhisperX wav2vec2 alignment and optional pyannote speaker labels. |
+| 🔁 | **Async pipeline** — a background worker transcribes then translates; the UI polls live status per language. |
+| 🔒 | **Locked-down deployment** — CloudFront is the only entry; the origin rejects anything that doesn't come through it. |
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Frontend (React)                  │
-│         Vite · React Router · TanStack Query        │
-├─────────────────────────────────────────────────────┤
-│                        /api                         │
-├─────────────────────────────────────────────────────┤
-│                  Backend (FastAPI)                   │
-│  ┌──────────┐  ┌────────────────┐  ┌─────────────┐ │
-│  │  Audio    │  │  Transcription │  │  Scheduler  │ │
-│  │  Manager  │  │  Engine        │  │  (cron)     │ │
-│  └────┬─────┘  └───────┬────────┘  └──────┬──────┘ │
-│       │                │                   │        │
-│  ┌────┴────────────────┴───────────────────┴──────┐ │
-│  │           Batch Processor                      │ │
-│  └────────────────────┬──────────────────────────-┘ │
-│                       │                             │
-│  ┌────────────────────┴──────────────────────────┐  │
-│  │  WhisperX  ·  faster-whisper  ·  CTranslate2  │  │
-│  │  wav2vec2 alignment  ·  pyannote diarization   │  │
-│  └────────────────────────────────────────────────┘  │
-├─────────────────────────────────────────────────────┤
-│              SQLite  ·  File Storage                │
-└─────────────────────────────────────────────────────┘
-```
+## 🎯 Who it's for
+
+- **Short-video creators / marketers** — subtitle a clip into many languages for cross-border distribution (抖音 / TikTok / YouTube / Reels).
+- **Localization teams** — bulk-generate first-pass subtitle tracks for review instead of transcribing and translating by hand.
+- **Media / education platforms** — add searchable, multi-language captions to a video library.
+- **Developers** — a clean REST API (`/api/media`) and reference AWS deployment (S3 + Bedrock + CloudFront + EC2) to build on.
+
+## 🏗️ Architecture at a glance
+
+![AWS architecture](docs/diagrams/architecture_aws.png)
+
+**The flow:** upload a video → WhisperX transcribes it and detects the language → you choose target languages → Claude (on Amazon Bedrock) translates each segment → SRT/VTT files land in S3, ready to download or preview. CloudFront is the only public entry; the EC2 origin only accepts traffic that comes through it.
+
+End-to-end request sequence:
+
+![End-to-end sequence](docs/diagrams/sequence_end_to_end.png)
+
+📐 **More diagrams** — pipeline, data model, state machines, component map, deployment topology: see **[docs/architecture.md](docs/architecture.md)**.
 
 ## Tech Stack
 
 | Layer    | Technology                                                  |
 | -------- | ----------------------------------------------------------- |
 | Frontend | React 19, TypeScript, Vite, React Router, TanStack Query    |
-| Backend  | Python, FastAPI, SQLAlchemy, APScheduler, Pydantic v2       |
-| AI/ML    | WhisperX, faster-whisper, CTranslate2, wav2vec2, pyannote   |
-| Database | SQLite (file-based, zero config)                            |
-| Runtime  | CUDA 12.x + PyTorch 2.x (GPU) or CPU fallback              |
+| Backend  | Python, FastAPI, SQLAlchemy, Pydantic v2                    |
+| AI/ML    | WhisperX (`large-v3`), faster-whisper, CTranslate2, wav2vec2, pyannote |
+| Translation | Claude (Haiku/Sonnet/Opus) via Amazon Bedrock            |
+| Storage  | Amazon S3 (videos + subtitles), SQLite (metadata)           |
+| Infra    | CloudFront + EC2 + IAM; scripts in [`deploy/`](deploy/)      |
+| Runtime  | CUDA 12.x + PyTorch (GPU) or CPU fallback (`int8`)          |
+
+> **Two product surfaces in one repo:** the **video subtitling** product described here (`/api/media`, S3, Bedrock translation) is the primary surface. The original **batch audio transcription** engine (`/api/audio`, GPU benchmarks, diarization research) is documented in full below and remains available.
 
 ## Prerequisites
 
@@ -298,9 +298,63 @@ Response:
 }
 ```
 
-## Supported Audio Formats
+## 🎬 Video Subtitling API (`/api/media`)
 
-`wav` · `mp3` · `flac` · `m4a` · `ogg`
+The video subtitling product is driven by the `/api/media` endpoints. Videos are
+uploaded directly to S3 via presigned URLs; subtitles are generated
+asynchronously and downloaded as SRT/VTT.
+
+| Method   | Endpoint                                         | Description                                   |
+| -------- | ------------------------------------------------ | --------------------------------------------- |
+| `POST`   | `/api/media`                                     | Create a media record; returns a presigned upload URL |
+| `POST`   | `/api/media/{id}/complete`                       | Confirm upload finished; enqueues transcription |
+| `GET`    | `/api/media`                                      | List media with per-language subtitle status  |
+| `GET`    | `/api/media/{id}`                                 | Media details + subtitle tracks               |
+| `GET`    | `/api/media/{id}/stream`                          | Presigned URL to play the video               |
+| `DELETE` | `/api/media/{id}`                                 | Delete the video + all subtitles              |
+| `POST`   | `/api/media/{id}/subtitles`                       | Generate subtitles for selected target languages |
+| `GET`    | `/api/media/{id}/subtitles`                       | List subtitle tracks + statuses               |
+| `GET`    | `/api/media/{id}/subtitles/{lang}/{srt\|vtt}`     | Presigned URL to download a subtitle file     |
+
+**End-to-end flow:**
+
+```mermaid
+sequenceDiagram
+    actor U as Browser
+    participant API as API
+    participant S3 as S3
+    participant W as Worker
+    U->>API: POST /api/media
+    API-->>U: presigned PUT URL
+    U->>S3: upload video bytes
+    U->>API: POST /api/media/{id}/complete
+    W->>S3: transcribe (WhisperX) -> source SRT/VTT
+    U->>API: POST /api/media/{id}/subtitles {targets}
+    W->>W: translate via Claude (Bedrock) -> SRT/VTT
+    U->>API: GET .../subtitles/{lang}/srt -> download
+```
+
+```bash
+# 1. create + get a presigned upload URL
+curl -s -X POST $BASE/api/media -H 'content-type: application/json' \
+  -d '{"filename":"clip.mp4","content_type":"video/mp4"}'
+# 2. upload the bytes to the returned upload_url (PUT), then:
+curl -X POST $BASE/api/media/1/complete
+# 3. once transcription completes, request target languages
+curl -X POST $BASE/api/media/1/subtitles -H 'content-type: application/json' \
+  -d '{"target_languages":["ja","zh","es"]}'
+# 4. download a subtitle file (returns a presigned URL)
+curl $BASE/api/media/1/subtitles/ja/srt
+```
+
+> ☁️ **Deploy it on AWS** — one-command scripts for S3 + IAM + EC2 + CloudFront are in
+> **[`deploy/`](deploy/)** (see [deploy/README.md](deploy/README.md)). Translation runs on
+> Amazon Bedrock, so no GPU is required for the translation step.
+
+## Supported Formats
+
+**Video:** `mp4` · `mov` · `mkv` · `webm` · `avi` · `m4v`
+**Audio:** `wav` · `mp3` · `flac` · `m4a` · `ogg`
 
 ## Language Support
 
