@@ -132,11 +132,17 @@ def stream_media(media_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{media_id}", status_code=204)
 def delete_media(media_id: int, db: Session = Depends(get_db)):
+    """Delete a media + its subtitles + S3 objects.
+
+    Deletion is allowed in any state, including 'processing' — it acts as a
+    cancel. If the worker is mid-job, it re-checks the media still exists before
+    its final commit (see SubtitlePipeline), so a deleted-mid-transcription
+    media is not re-created as a zombie. (Previously this returned 409 while
+    'processing', which made a stuck job permanently undeletable.)
+    """
     record = db.query(MediaFile).filter_by(id=media_id).first()
     if record is None:
         raise HTTPException(status_code=404, detail=f"Media {media_id} not found")
-    if record.transcription_status == "processing":
-        raise HTTPException(status_code=409, detail="Cannot delete while transcription is in progress")
     get_storage().delete_prefixes(storage_keys.media_prefixes(media_id))
     db.query(SubtitleTrack).filter_by(media_file_id=media_id).delete()
     db.delete(record)

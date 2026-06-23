@@ -37,10 +37,49 @@ class SubtitleWorker:
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self._recover_stuck()
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="subtitle-worker", daemon=True)
         self._thread.start()
         logger.info("subtitle worker started")
+
+    @staticmethod
+    def _recover_stuck() -> None:
+        """Reset rows orphaned in 'processing' back to 'pending'.
+
+        Processing happens in this worker process; if it restarts mid-job (deploy,
+        crash, OOM), the in-flight MediaFile/SubtitleTrack are left stuck in
+        'processing' forever — the poll loop only claims 'pending' rows, and the
+        delete endpoint refuses to remove anything 'processing' (a 409). Re-queue
+        them on startup so they retry instead of becoming undeletable zombies.
+        """
+        db = SessionLocal()
+        try:
+            media = (
+                db.query(MediaFile)
+                .filter(MediaFile.transcription_status == "processing")
+                .all()
+            )
+            tracks = (
+                db.query(SubtitleTrack)
+                .filter(SubtitleTrack.status == "processing")
+                .all()
+            )
+            for m in media:
+                m.transcription_status = "pending"
+            for t in tracks:
+                t.status = "pending"
+            if media or tracks:
+                db.commit()
+                logger.warning(
+                    "recovered stuck rows on startup: %d media, %d tracks re-queued",
+                    len(media), len(tracks),
+                )
+        except Exception:
+            logger.exception("stuck-row recovery failed")
+            db.rollback()
+        finally:
+            db.close()
 
     def stop(self) -> None:
         self._stop.set()

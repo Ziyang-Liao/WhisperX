@@ -89,6 +89,13 @@ class SubtitlePipeline:
             segments = _segments_to_dicts(result)
             language = getattr(result, "language", None) or "unknown"
 
+            # The media may have been deleted (cancelled) while we transcribed.
+            # Re-fetch before writing so we don't resurrect a zombie row.
+            media = self.db.query(MediaFile).filter_by(id=media_id).first()
+            if media is None:
+                logger.info("media %s deleted during transcription; discarding result", media_id)
+                return
+
             media.transcript_json = _result_to_json(result)
             media.source_language = language
 

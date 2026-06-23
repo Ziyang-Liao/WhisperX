@@ -98,6 +98,25 @@ async def test_list_hides_created_but_shows_pending(client):
 
 
 @pytest.mark.asyncio
+async def test_delete_allowed_while_processing(client, db_session):
+    """Delete must work even when transcription is 'processing' (acts as cancel).
+
+    Regression: it previously returned 409, which left a stuck job permanently
+    undeletable.
+    """
+    create = await client.post("/api/media", json={"filename": "stuck.mp4"})
+    mid = create.json()["media_id"]
+    await client.post(f"/api/media/{mid}/complete")
+    rec = db_session.query(MediaFile).filter_by(id=mid).first()
+    rec.transcription_status = "processing"
+    db_session.commit()
+
+    resp = await client.delete(f"/api/media/{mid}")
+    assert resp.status_code == 204
+    assert db_session.query(MediaFile).filter_by(id=mid).first() is None
+
+
+@pytest.mark.asyncio
 async def test_generate_subtitles_skips_source_language(client, db_session):
     create = await client.post("/api/media", json={"filename": "v.mp4"})
     mid = create.json()["media_id"]
