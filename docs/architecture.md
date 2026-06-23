@@ -107,6 +107,30 @@ sequenceDiagram
 
 ---
 
+## 2b. Delete / cancel
+
+Delete works in any state and doubles as a cancel for an in-flight job. The
+worker re-checks the media still exists before its final write, so cancelling
+mid-transcription discards the result rather than resurrecting the row.
+
+```mermaid
+sequenceDiagram
+    actor U as Browser
+    participant API as FastAPI
+    participant S3 as S3
+    participant W as Worker
+
+    U->>API: DELETE /api/media/{id}
+    API->>S3: delete videos/{id}/ + subtitles/{id}/
+    API->>API: delete SubtitleTracks + MediaFile rows
+    API-->>U: 204 (even if it was 'processing')
+    Note over W: if mid-transcription, the worker's
+    Note over W: post-job re-fetch finds the media gone
+    W->>W: media is None -> discard result
+```
+
+---
+
 ## 3. Processing pipeline
 
 ```mermaid
@@ -114,19 +138,26 @@ flowchart LR
     A[Video in S3] --> B[ffmpeg<br/>extract 16kHz mono wav]
     B --> C[WhisperX transcribe<br/>auto-detect language]
     C --> D[wav2vec2<br/>word alignment]
-    D --> E[Source segments<br/>with timestamps]
-    E --> F[Source SRT/VTT]
-    E --> G{Target languages}
-    G -->|per language| H[Claude on Bedrock<br/>per-segment translate]
-    H --> I[Reuse source timestamps]
+    D --> E[Coarse ASR segments<br/>+ word timestamps]
+    E --> K[chunk_into_cues<br/>split at punctuation/pauses/caps]
+    K --> L[Short word-timed cues]
+    L --> F[Source SRT/VTT]
+    L --> G{Target languages}
+    G -->|per language| H[Claude on Bedrock<br/>translate each cue]
+    H --> I[Reuse cue timestamps]
     I --> J[Translated SRT/VTT]
 
     style F fill:#d1fae5
     style J fill:#d1fae5
+    style K fill:#fef3c7
 ```
 
-Translation reuses each source segment's start/end and only replaces the text,
-so subtitle timing stays aligned across every language.
+WhisperX emits coarse segments (10-30s of speech each). `chunk_into_cues`
+re-splits them into short, movie-style cues using the word-level timestamps —
+breaking at sentence punctuation, pauses (>=0.7s), and char/duration caps — so
+each cue appears as it is spoken. Translation runs on those **short cues** and
+reuses each cue's start/end (only the text changes), so subtitle timing stays
+aligned across every language.
 
 ---
 
@@ -175,8 +206,19 @@ stateDiagram-v2
     pending --> processing: worker picks up
     processing --> completed: transcript + source track
     processing --> failed: error
+    processing --> pending: worker restart (recover stuck)
     failed --> pending: retry
+    completed --> [*]: DELETE
+    pending --> [*]: DELETE
+    processing --> [*]: DELETE (cancel)
+    failed --> [*]: DELETE
 ```
+
+Two safety transitions worth calling out: on **worker restart**, any row left
+in `processing` (e.g. the process was redeployed mid-job) is reset to `pending`
+so it re-runs instead of becoming an undeletable zombie; and **DELETE is allowed
+from any state** (it cancels an in-flight job — the pipeline re-checks the media
+still exists before its final write).
 
 A subtitle track's status (the translation queue):
 
@@ -186,33 +228,39 @@ stateDiagram-v2
     pending --> processing: worker picks up
     processing --> completed: SRT/VTT in S3
     processing --> failed: error
+    processing --> pending: worker restart (recover stuck)
     failed --> pending: regenerate
 ```
 
 ---
 
-## 6. Backend components
+## 6. Components
 
 ```mermaid
 flowchart TB
+    subgraph fe[Frontend SPA - React, served by FastAPI StaticFiles]
+        fl[MediaListPage<br/>upload + lang multi-select + delete]
+        fd[MediaDetailPage<br/>player + tracks + delete]
+        fj[SubtitleJobsPage<br/>per-video progress]
+    end
     subgraph routers[Routers]
-        rm[media.py]
-        ra[audio.py]
-        rt[transcription.py]
+        rm[media.py<br/>/api/media]
+        leg[audio.py + transcription.py<br/>legacy, not in UI]
     end
     subgraph services[Services]
-        sp[SubtitlePipeline]
-        wk[SubtitleWorker]
+        sp[SubtitlePipeline<br/>re-checks media before write]
+        wk[SubtitleWorker<br/>poll loop + recover stuck on start]
         st[StorageService]
         te[TranscriptionEngine]
         tr[TranslationEngine]
-        su[subtitles.py<br/>SRT/VTT + ffmpeg]
+        su[subtitles.py<br/>chunk_into_cues + SRT/VTT + ffmpeg]
     end
     subgraph models[Models]
         mf[MediaFile]
         tk[SubtitleTrack]
     end
 
+    fl & fd & fj -->|/api/media| rm
     rm --> st
     rm --> mf
     rm --> tk
@@ -224,6 +272,10 @@ flowchart TB
     sp --> mf
     sp --> tk
 ```
+
+The legacy `audio.py` / `transcription.py` routers (the original batch audio
+system) still exist on the backend but are no longer surfaced in the UI; the
+product is driven entirely by `/api/media`.
 
 ---
 

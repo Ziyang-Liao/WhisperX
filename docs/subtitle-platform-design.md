@@ -226,3 +226,25 @@ s3://<temp-account-bucket>/
 - 鉴权方式(API Key / Cognito / 其他)。
 - 目标语种清单与是否启用模型分级(Opus 打底 vs 常规走 Sonnet)。
 - 预计并发与视频规模(决定是否需要走 §11 扩展路径)。
+
+---
+
+## 15. 实现现状与设计偏差(实测后更新)
+
+> 本节记录已实现的功能,以及因 `temp-account`(AWS workshop 临时账号)的硬性限制对原设计的偏离。架构图见 [architecture.md](architecture.md)。
+
+**因账号限制产生的偏差(实测确认):**
+- **CPU 而非 GPU**:该账号 GPU 配额为 0(on-demand/spot 皆为 0,且策略禁止申请提额),无法部署 g5/g6。改用 **CPU 实例 c7i.2xlarge + large-v3 int8**。转写较慢是已知代价;用户已决定不换账号、不换模型、不升 CPU 机型。
+- **翻译模型 = Haiku 4.5,非 Opus**:Opus 在该账号被拒(AccessDenied);Bedrock 须用**跨区推理配置**(`us.anthropic.claude-haiku-4-5-...`,裸模型 ID 会被拒)。
+- **CloudFront→源站为 HTTP**:无自定义域名,端到端 TLS(域名 + ACM + ALB)留待 Phase 4。
+
+**已实现、超出原 Phase 1-3 描述的功能:**
+- **短句字幕(电影式)**:`chunk_into_cues` 用词级时间戳把粗 ASR 段落切成短句(按句末标点 / 停顿 ≥0.7s / 字符·时长上限),翻译在短句上进行并复用时间戳。见 architecture.md §3。
+- **前端由 FastAPI 托管(StaticFiles)+ SPA no-cache 缓存策略**:`index.html` 不缓存、哈希资源 immutable,杜绝深链/刷新空白页。
+- **字幕任务页**(`SubtitleJobsPage`):接 `/api/media` 展示每个视频的转写 + 各语种字幕进度。已移除前端遗留的音频/批处理页(后端接口保留)。
+- **删除带确认 + 详情页删除 + 任意状态可删(取消)**:删除不再被 `processing` 永久挡住(409)。
+- **卡住任务恢复**:worker 启动时把残留 `processing` 行重置为 `pending`,避免重启/崩溃产生「僵尸」无法删除。
+
+**安全收口(已实现,见 architecture.md §1/§7):**
+- CloudFront 为唯一入口;EC2 安全组只放行 CloudFront 托管前缀列表;应用校验 `X-Origin-Secret` 头,双层防绕过。
+- 仍**无应用层用户鉴权**(Phase 4)。
