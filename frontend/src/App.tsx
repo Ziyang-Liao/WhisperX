@@ -3,9 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Layout from "./components/Layout";
 import MediaListPage from "./pages/MediaListPage";
 import MediaDetailPage from "./pages/MediaDetailPage";
-import AudioListPage from "./pages/AudioListPage";
-import AudioDetailPage from "./pages/AudioDetailPage";
-import TranscriptionTasksPage from "./pages/TranscriptionTasksPage";
+import SubtitleJobsPage from "./pages/SubtitleJobsPage";
 import "./App.css";
 
 const queryClient = new QueryClient({
@@ -20,9 +18,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<MediaListPage />} />
             <Route path="/media/:id" element={<MediaDetailPage />} />
-            <Route path="/audio" element={<AudioListPage />} />
-            <Route path="/audio/:id" element={<AudioDetailPage />} />
-            <Route path="/tasks" element={<TranscriptionTasksPage />} />
+            <Route path="/tasks" element={<SubtitleJobsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -9,11 +9,8 @@ export default function Layout() {
           <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
             视频字幕
           </NavLink>
-          <NavLink to="/audio" className={({ isActive }) => (isActive ? "active" : "")}>
-            音频转写
-          </NavLink>
           <NavLink to="/tasks" className={({ isActive }) => (isActive ? "active" : "")}>
-            转录任务
+            字幕任务
           </NavLink>
         </nav>
       </aside>

@@ -32,6 +32,8 @@ export default function MediaListPage() {
   const [error, setError] = useState("");
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [selectedLangs, setSelectedLangs] = useState<Set<string>>(new Set(["en"]));
+  // Media pending deletion (shows the confirm dialog). null = no dialog.
+  const [pendingDelete, setPendingDelete] = useState<MediaFile | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["media", page],
@@ -54,8 +56,15 @@ export default function MediaListPage() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteMedia,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["media"] }),
-    onError: (err: Error) => setError(err.message),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["media"] });
+      setPendingDelete(null);
+      setError("");
+    },
+    onError: (err: Error) => {
+      setPendingDelete(null);
+      setError(err.message);
+    },
   });
 
   const genMutation = useMutation({
@@ -204,7 +213,7 @@ export default function MediaListPage() {
                     </button>
                     <button
                       className="btn-danger"
-                      onClick={() => deleteMutation.mutate(m.id)}
+                      onClick={() => setPendingDelete(m)}
                       data-testid={`del-${m.id}`}
                     >
                       删除
@@ -227,6 +236,35 @@ export default function MediaListPage() {
             </button>
           </div>
         </>
+      )}
+
+      {pendingDelete && (
+        <div
+          className="confirm-dialog-overlay"
+          onClick={() => setPendingDelete(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="确认删除"
+        >
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>确认删除</h3>
+            <p>
+              确定要删除「{pendingDelete.filename}」吗？这会同时删除该视频及其所有语言的字幕，
+              <strong>此操作不可撤销</strong>。
+            </p>
+            <div className="confirm-dialog-actions">
+              <button onClick={() => setPendingDelete(null)}>取消</button>
+              <button
+                className="btn-danger"
+                onClick={() => deleteMutation.mutate(pendingDelete.id)}
+                disabled={deleteMutation.isPending}
+                data-testid="confirm-delete"
+              >
+                {deleteMutation.isPending ? "删除中..." : "确认删除"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

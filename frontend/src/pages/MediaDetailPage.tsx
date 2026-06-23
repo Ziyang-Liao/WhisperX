@@ -1,17 +1,29 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getMedia,
   getMediaStreamUrl,
   getSubtitleUrl,
+  deleteMedia,
 } from "../api/media";
 
 export default function MediaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const mediaId = Number(id);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [trackUrls, setTrackUrls] = useState<Record<string, string>>({});
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteMedia(mediaId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["media"] });
+      navigate("/");
+    },
+  });
 
   const { data: media, isLoading } = useQuery({
     queryKey: ["media", mediaId],
@@ -63,6 +75,13 @@ export default function MediaDetailPage() {
           </Link>{" "}
           / {media.filename}
         </h2>
+        <button
+          className="btn-danger"
+          onClick={() => setConfirmDelete(true)}
+          data-testid="detail-delete"
+        >
+          删除
+        </button>
       </div>
 
       <div className="detail-card">
@@ -170,6 +189,35 @@ export default function MediaDetailPage() {
           </table>
         )}
       </div>
+
+      {confirmDelete && (
+        <div
+          className="confirm-dialog-overlay"
+          onClick={() => setConfirmDelete(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="确认删除"
+        >
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>确认删除</h3>
+            <p>
+              确定要删除「{media.filename}」吗？这会同时删除该视频及其所有语言的字幕，
+              <strong>此操作不可撤销</strong>。
+            </p>
+            <div className="confirm-dialog-actions">
+              <button onClick={() => setConfirmDelete(false)}>取消</button>
+              <button
+                className="btn-danger"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                data-testid="confirm-delete"
+              >
+                {deleteMutation.isPending ? "删除中..." : "确认删除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
