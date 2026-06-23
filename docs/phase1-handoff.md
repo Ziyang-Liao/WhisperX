@@ -48,7 +48,7 @@ failures** unrelated to this work (`test_property_6_batch_only_collects_pending_
 expects pending-only but the code also retries failed files; `test_diarization_success_assigns_speakers`
 has a mock-setup gap for `whisperx.diarize`). Both fail on the original `main` too.
 
-## Account-specific constraints (temp-account `ACCOUNT_ID_REDACTED`)
+## Account-specific constraints (the deployment AWS account)
 
 - **GPU quota = 0** → WhisperX runs on **CPU** (`large-v3`, int8).
 - **Opus not available** → translation uses **Haiku 4.5**.

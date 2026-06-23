@@ -4,12 +4,15 @@ set -uo pipefail
 cd "$(dirname "$0")"
 source ./config.env
 
-EXPECTED_ACCOUNT="ACCOUNT_ID_REDACTED"
+# Set DEPLOY_ACCOUNT_ID to enable the wrong-account guard (never hardcode it).
+EXPECTED_ACCOUNT="${DEPLOY_ACCOUNT_ID:-}"
 aws() { command aws --profile "$AWS_PROFILE" --region "$AWS_REGION" "$@"; }
 say() { printf '\n\033[1;33m== %s\033[0m\n' "$*"; }
 
 ACCT=$(aws sts get-caller-identity --query Account --output text)
-[ "$ACCT" = "$EXPECTED_ACCOUNT" ] || { echo "REFUSING: account $ACCT is not $EXPECTED_ACCOUNT"; exit 1; }
+if [ -n "$EXPECTED_ACCOUNT" ] && [ "$ACCT" != "$EXPECTED_ACCOUNT" ]; then
+  echo "REFUSING: active account $ACCT does not match DEPLOY_ACCOUNT_ID"; exit 1
+fi
 
 [ -f deploy-state.env ] && source ./deploy-state.env
 

@@ -14,13 +14,16 @@ cd "$(dirname "$0")"
 source ./config.env
 [ -f deploy-state.env ] && source ./deploy-state.env
 
-EXPECTED_ACCOUNT="ACCOUNT_ID_REDACTED"
+# Set DEPLOY_ACCOUNT_ID to enable the wrong-account guard (never hardcode it).
+EXPECTED_ACCOUNT="${DEPLOY_ACCOUNT_ID:-}"
 CF_PREFIX_LIST="pl-3b927c52"   # com.amazonaws.global.cloudfront.origin-facing (us-east-1)
 say() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 aws() { command aws --profile "$AWS_PROFILE" --region "$AWS_REGION" "$@"; }
 
 ACCT=$(aws sts get-caller-identity --query Account --output text)
-[ "$ACCT" = "$EXPECTED_ACCOUNT" ] || { echo "REFUSING: account $ACCT != $EXPECTED_ACCOUNT"; exit 1; }
+if [ -n "$EXPECTED_ACCOUNT" ] && [ "$ACCT" != "$EXPECTED_ACCOUNT" ]; then
+  echo "REFUSING: active account $ACCT does not match DEPLOY_ACCOUNT_ID"; exit 1
+fi
 
 : "${INSTANCE_ID:?run deploy.sh first (need INSTANCE_ID in deploy-state.env)}"
 : "${SG_ID:?need SG_ID in deploy-state.env}"

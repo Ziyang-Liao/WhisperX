@@ -18,7 +18,9 @@ import time
 
 from playwright.sync_api import sync_playwright, expect
 
-BASE = os.environ.get("UI_BASE", "https://CLOUDFRONT_DOMAIN_REDACTED")
+BASE = os.environ.get("UI_BASE")  # set to your CloudFront URL, e.g. https://xxxx.cloudfront.net
+if not BASE:
+    sys.exit("set UI_BASE to the deployment URL, e.g. UI_BASE=https://xxxx.cloudfront.net")
 VIDEO = os.environ.get("UI_VIDEO", "/tmp/test_clip.mp4")
 LANGS = ["ja", "zh"]  # target languages to select (source will be en)
 OUT = os.path.join(os.path.dirname(__file__), "ui-evidence")

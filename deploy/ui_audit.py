@@ -12,7 +12,9 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-BASE = os.environ.get("UI_BASE", "https://CLOUDFRONT_DOMAIN_REDACTED")
+BASE = os.environ.get("UI_BASE")  # set to your CloudFront URL
+if not BASE:
+    sys.exit("set UI_BASE to the deployment URL, e.g. UI_BASE=https://xxxx.cloudfront.net")
 OUT = os.path.join(os.path.dirname(__file__), "ui-evidence")
 os.makedirs(OUT, exist_ok=True)
 

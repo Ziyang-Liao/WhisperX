@@ -1,7 +1,8 @@
 # Deployment — WhisperX Subtitle Platform
 
 Deploys the video-subtitling backend to the **temp-account** AWS account only.
-Every script asserts the account id (`ACCOUNT_ID_REDACTED`) and refuses to run elsewhere.
+Set `DEPLOY_ACCOUNT_ID` to make the scripts assert they're running against the
+intended account and refuse to run elsewhere.
 
 ## Architecture (front door)
 
@@ -29,7 +30,7 @@ instance directly — **both required**:
 
 | Resource | Name | Purpose | Cost |
 |---|---|---|---|
-| S3 bucket | `whisperx-subs-ACCOUNT_ID_REDACTED-us-east-1` | source videos + generated SRT/VTT + app tarball | ~$0.023/GB-mo |
+| S3 bucket | `whisperx-subs-<account-id>-us-east-1` | source videos + generated SRT/VTT + app tarball | ~$0.023/GB-mo |
 | IAM role + instance profile | `whisperx-subs-ec2-role` / `-profile` | scoped S3 + `bedrock:InvokeModel` (Haiku) | $0 |
 | Security group | `whisperx-subs-sg` | `:8000` from CloudFront prefix list only | $0 |
 | EC2 instance | `whisperx-subs-app` (`c7i.2xlarge`, CPU) | runs FastAPI + background worker + WhisperX | **~$0.36/hr ≈ $8.6/day** |

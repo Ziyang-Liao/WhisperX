@@ -8,15 +8,19 @@ set -euo pipefail
 cd "$(dirname "$0")"
 source ./config.env
 
-EXPECTED_ACCOUNT="ACCOUNT_ID_REDACTED"
+# Set DEPLOY_ACCOUNT_ID in your environment to enable the wrong-account guard.
+# Left unset, the scripts proceed against whatever account the profile resolves
+# to (and print it). Never hardcode the account id in a committed file.
+EXPECTED_ACCOUNT="${DEPLOY_ACCOUNT_ID:-}"
 say() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 
 aws() { command aws --profile "$AWS_PROFILE" --region "$AWS_REGION" "$@"; }
 
-say "Verifying account is temp-account ($EXPECTED_ACCOUNT)"
 ACCT=$(aws sts get-caller-identity --query Account --output text)
-[ "$ACCT" = "$EXPECTED_ACCOUNT" ] || { echo "REFUSING: account $ACCT is not $EXPECTED_ACCOUNT"; exit 1; }
-echo "OK: $ACCT"
+if [ -n "$EXPECTED_ACCOUNT" ] && [ "$ACCT" != "$EXPECTED_ACCOUNT" ]; then
+  echo "REFUSING: active account $ACCT does not match DEPLOY_ACCOUNT_ID"; exit 1
+fi
+say "Deploying to account $ACCT (profile $AWS_PROFILE)"
 
 say "Creating S3 bucket: $BUCKET"
 if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
@@ -56,7 +60,7 @@ if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
     --assume-role-policy-document file://iam-trust-policy.json \
     --tags Key=$TAG_KEY,Value=$TAG_VAL >/dev/null
 fi
-sed "s/__BUCKET__/$BUCKET/g" iam-permissions-policy.json.tmpl > /tmp/perms.json
+sed -e "s/__BUCKET__/$BUCKET/g" -e "s/__ACCOUNT__/$ACCT/g" iam-permissions-policy.json.tmpl > /tmp/perms.json
 aws iam put-role-policy --role-name "$ROLE_NAME" \
   --policy-name "${STACK}-perms" --policy-document file:///tmp/perms.json
 if ! aws iam get-instance-profile --instance-profile-name "$INSTANCE_PROFILE" >/dev/null 2>&1; then
